@@ -5,7 +5,7 @@ import cv2
 from pytube import YouTube
 import tempfile
 import settings
-
+import yt_dlp as youtube_dl
 
 def load_model(model_path):
     """
@@ -64,9 +64,11 @@ def _display_detected_frames(conf, model, st_frame, image, is_display_tracking=N
                    )
 
 
+
+
 def play_youtube_video(conf, model):
     """
-    Plays a webcam stream. Detects Objects in real-time using the YOLOv8 object detection model.
+    Plays a YouTube video. Detects Objects in real-time using the YOLOv8 object detection model.
 
     Parameters:
         conf: Confidence of YOLOv8 model.
@@ -78,32 +80,46 @@ def play_youtube_video(conf, model):
     Raises:
         None
     """
-    source_youtube = st.sidebar.text_input("YouTube Video url")
+    source_youtube = st.sidebar.text_input("YouTube Video URL")
 
     is_display_tracker, tracker = display_tracker_options()
 
     if st.sidebar.button('Detect Objects'):
         try:
-            yt = YouTube(source_youtube)
-            stream = yt.streams.filter(file_extension="mp4", res=720).first()
-            vid_cap = cv2.VideoCapture(stream.url)
-
-            st_frame = st.empty()
-            while (vid_cap.isOpened()):
-                success, image = vid_cap.read()
-                if success:
-                    _display_detected_frames(conf,
-                                             model,
-                                             st_frame,
-                                             image,
-                                             is_display_tracker,
-                                             tracker,
-                                             )
+            ydl_opts = {
+                'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
+                'noplaylist': True,
+                'quiet': True
+            }
+            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(source_youtube, download=False)
+                formats = info_dict.get('formats', None)
+                video_url = None
+                if formats:
+                    for f in formats:
+                        if f.get('vcodec') != 'none':  # video stream
+                            video_url = f['url']
+                            break
+                if video_url:
+                    vid_cap = cv2.VideoCapture(video_url)
+                    st_frame = st.empty()
+                    while vid_cap.isOpened():
+                        success, image = vid_cap.read()
+                        if success:
+                            _display_detected_frames(conf,
+                                                     model,
+                                                     st_frame,
+                                                     image,
+                                                     is_display_tracker,
+                                                     tracker)
+                        else:
+                            vid_cap.release()
+                            break
                 else:
-                    vid_cap.release()
-                    break
+                    st.sidebar.error("Failed to retrieve video URL.")
         except Exception as e:
             st.sidebar.error("Error loading video: " + str(e))
+
 
 
 def play_rtsp_stream(conf, model):
